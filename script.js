@@ -47,7 +47,7 @@ function createHearts() {
 }
 createHearts();
 
-// ---------- service worker (com fallback e logs) ----------
+// ---------- service worker ----------
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     const swPath = new URL('sw.js', window.location.href).pathname;
@@ -149,23 +149,34 @@ setInterval(loadSchedule, 30 * 60 * 1000);
 setInterval(loadUltimaMensagem, 5 * 60 * 1000);
 
 // ============================================================
-// ONESIGNAL — INICIALIZAÇÃO ROBUSTA (com timeout)
+// ONESIGNAL — INICIALIZAÇÃO COM ESPERA DO SERVICE WORKER
 // ============================================================
 window.OneSignalDeferred = window.OneSignalDeferred || [];
 let oneSignalReady = false;
 
-// Timeout para não travar o botão se o OneSignal demorar (8 segundos)
-const oneSignalTimeout = setTimeout(() => {
-  if (!oneSignalReady) {
-    console.warn('⏰ OneSignal demorou para iniciar, liberando botão mesmo assim');
-    oneSignalReady = true;
-    setStatus('Clique em "Ativar notificações" para começar', false);
+// Aguarda o Service Worker registrar antes de iniciar o OneSignal
+async function waitForServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  let attempts = 0;
+  while (attempts < 10) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.active) {
+        console.log('✅ Service Worker ativo, iniciando OneSignal...');
+        return;
+      }
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 300));
+    attempts++;
   }
-}, 8000);
+  console.warn('⚠️ Service Worker não ficou ativo após 3 segundos, iniciando mesmo assim.');
+}
 
 OneSignalDeferred.push(async function (OneSignal) {
-  clearTimeout(oneSignalTimeout);
   try {
+    // Aguarda o Service Worker ficar ativo (máximo 3 segundos)
+    await waitForServiceWorker();
+
     console.log('🔄 Inicializando OneSignal...');
     await OneSignal.init({
       appId: ONESIGNAL_APP_ID,
