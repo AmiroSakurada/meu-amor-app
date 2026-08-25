@@ -28,7 +28,6 @@ function setMessage(text) {
 function createHearts() {
   const container = document.getElementById('hearts-bg');
   if (!container) return;
-
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
   const emojis = ['❤️', '💕', '✨', '🩷'];
@@ -52,7 +51,9 @@ createHearts();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     const swPath = new URL('sw.js', window.location.href).pathname;
-    navigator.serviceWorker.register(swPath, { scope: './' }).catch(() => {});
+    navigator.serviceWorker.register(swPath, { scope: './' })
+      .then(() => console.log('✅ Service Worker registrado'))
+      .catch((err) => console.warn('⚠️ Service Worker falhou:', err));
   });
 }
 
@@ -77,6 +78,7 @@ async function loadSchedule() {
   try {
     const data = await fetchJson(BACKEND_URL + '/schedule');
     scheduleTimes = data.all || [];
+    console.log('📅 Horários carregados:', scheduleTimes);
   } catch (e) {
     console.warn('horários fallback', e.message);
     scheduleTimes = ['08:00', '10:30', '13:00', '18:00', '21:00'];
@@ -143,12 +145,25 @@ setInterval(updateCountdown, 1000);
 setInterval(loadSchedule, 30 * 60 * 1000);
 setInterval(loadUltimaMensagem, 5 * 60 * 1000);
 
-// ---------- OneSignal (iPhone + Android) ----------
+// ============================================================
+// ONESIGNAL — INICIALIZAÇÃO ROBUSTA (CORRIGIDA)
+// ============================================================
 window.OneSignalDeferred = window.OneSignalDeferred || [];
 let oneSignalReady = false;
 
+// Timeout para não travar o botão se o OneSignal demorar
+const oneSignalTimeout = setTimeout(() => {
+  if (!oneSignalReady) {
+    console.warn('⏰ OneSignal demorou para iniciar, liberando botão mesmo assim');
+    oneSignalReady = true;
+    setStatus('Clique em "Ativar notificações" para começar', false);
+  }
+}, 8000);
+
 OneSignalDeferred.push(async function (OneSignal) {
+  clearTimeout(oneSignalTimeout);
   try {
+    console.log('🔄 Inicializando OneSignal...');
     await OneSignal.init({
       appId: ONESIGNAL_APP_ID,
       notifyButton: { enable: false },
@@ -157,32 +172,62 @@ OneSignalDeferred.push(async function (OneSignal) {
       serviceWorkerPath: 'sw.js',
     });
     oneSignalReady = true;
+    console.log('✅ OneSignal iniciado com sucesso!');
 
     const btn = document.getElementById('btnAtivar');
-    if (OneSignal.Notifications.permission && btn) {
+    const hasPermission = OneSignal.Notifications.permission === 'granted';
+
+    if (hasPermission && btn) {
       btn.textContent = 'Notificações ativas ✓';
       btn.classList.add('ativo');
       setStatus('Tudo certo — as mensagens vão chegar no seu celular', true);
       loadUltimaMensagem();
+    } else if (btn) {
+      setStatus('Clique em "Ativar notificações" para começar', false);
     }
   } catch (err) {
-    console.error(err);
-    setStatus('Não deu pra iniciar as notificações. Recarrega a página?');
+    console.error('❌ Erro no OneSignal:', err);
+    oneSignalReady = true; // libera o botão mesmo com erro
+    setStatus('Erro ao iniciar notificações. Recarregue a página.', false);
   }
 });
 
+// ---------- Botão Ativar (com mais verificações) ----------
 document.getElementById('btnAtivar').addEventListener('click', async function () {
   const btn = this;
-  if (!oneSignalReady || typeof OneSignal === 'undefined') {
-    setStatus('Ainda carregando… tenta de novo em 2 segundos');
-    return;
+
+  // Se o OneSignal não estiver pronto, tenta forçar a inicialização
+  if (!oneSignalReady) {
+    setStatus('Aguarde, inicializando...', false);
+    // Tenta carregar novamente o OneSignal
+    if (window.OneSignal) {
+      try {
+        await window.OneSignal.init({
+          appId: ONESIGNAL_APP_ID,
+          notifyButton: { enable: false },
+          allowLocalhostAsSecureOrigin: true,
+          serviceWorkerParam: { scope: './' },
+          serviceWorkerPath: 'sw.js',
+        });
+        oneSignalReady = true;
+        console.log('✅ OneSignal iniciado após clique');
+      } catch (e) {
+        console.error('❌ Falha ao forçar inicialização:', e);
+        setStatus('Erro ao iniciar. Recarregue a página.', false);
+        return;
+      }
+    } else {
+      setStatus('Ainda carregando… tenta de novo em 3 segundos', false);
+      return;
+    }
   }
+
   btn.disabled = true;
   setStatus('');
   try {
-    // mesmo ID do backend → push chega no aparelho dela
-    await OneSignal.login(USER_EXTERNAL_ID);
-    const allowed = await OneSignal.Notifications.requestPermission();
+    // Faz login com o ID da Karol
+    await window.OneSignal.login(USER_EXTERNAL_ID);
+    const allowed = await window.OneSignal.Notifications.requestPermission();
     if (allowed) {
       btn.textContent = 'Notificações ativas ✓';
       btn.classList.add('ativo');
@@ -190,7 +235,6 @@ document.getElementById('btnAtivar').addEventListener('click', async function ()
       setMessage('Agora você vai receber todo meu amor no celular');
       setTimeout(loadUltimaMensagem, 700);
     } else {
-      // iOS Safari precisa de Add to Home Screen + permissão
       const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       setStatus(
         isiOS
@@ -199,8 +243,8 @@ document.getElementById('btnAtivar').addEventListener('click', async function ()
       );
     }
   } catch (e) {
-    console.error(e);
-    setStatus('Algo deu errado. Tenta de novo ou libera notificações nas configs.');
+    console.error('❌ Erro ao ativar notificações:', e);
+    setStatus('Algo deu errado. Tenta de novo ou libera notificações nas configs.', false);
   } finally {
     btn.disabled = false;
   }
