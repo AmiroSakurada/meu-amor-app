@@ -47,13 +47,16 @@ function createHearts() {
 }
 createHearts();
 
-// ---------- service worker ----------
+// ---------- service worker (com fallback e logs) ----------
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     const swPath = new URL('sw.js', window.location.href).pathname;
     navigator.serviceWorker.register(swPath, { scope: './' })
-      .then(() => console.log('✅ Service Worker registrado'))
-      .catch((err) => console.warn('⚠️ Service Worker falhou:', err));
+      .then(() => console.log('✅ Service Worker registrado com sucesso!'))
+      .catch((err) => {
+        console.warn('⚠️ Service Worker falhou, mas o app ainda funciona.', err);
+        setStatus('Notificações podem não funcionar. Tente recarregar.', false);
+      });
   });
 }
 
@@ -146,12 +149,12 @@ setInterval(loadSchedule, 30 * 60 * 1000);
 setInterval(loadUltimaMensagem, 5 * 60 * 1000);
 
 // ============================================================
-// ONESIGNAL — INICIALIZAÇÃO ROBUSTA (CORRIGIDA)
+// ONESIGNAL — INICIALIZAÇÃO ROBUSTA (com timeout)
 // ============================================================
 window.OneSignalDeferred = window.OneSignalDeferred || [];
 let oneSignalReady = false;
 
-// Timeout para não travar o botão se o OneSignal demorar
+// Timeout para não travar o botão se o OneSignal demorar (8 segundos)
 const oneSignalTimeout = setTimeout(() => {
   if (!oneSignalReady) {
     console.warn('⏰ OneSignal demorou para iniciar, liberando botão mesmo assim');
@@ -192,14 +195,30 @@ OneSignalDeferred.push(async function (OneSignal) {
   }
 });
 
-// ---------- Botão Ativar (com mais verificações) ----------
+// ---------- Botão Ativar (com verificação extra do Service Worker) ----------
 document.getElementById('btnAtivar').addEventListener('click', async function () {
   const btn = this;
+
+  // Tenta registrar o Service Worker novamente se ele não existir
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        console.log('🔄 Service Worker não encontrado, registrando novamente...');
+        await navigator.serviceWorker.register('sw.js', { scope: './' });
+        console.log('✅ Service Worker registrado após clique');
+        // Recarrega a página para ativar o SW corretamente
+        window.location.reload();
+        return;
+      }
+    } catch (e) {
+      console.warn('⚠️ Não foi possível registrar o Service Worker:', e);
+    }
+  }
 
   // Se o OneSignal não estiver pronto, tenta forçar a inicialização
   if (!oneSignalReady) {
     setStatus('Aguarde, inicializando...', false);
-    // Tenta carregar novamente o OneSignal
     if (window.OneSignal) {
       try {
         await window.OneSignal.init({
