@@ -54,8 +54,7 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register(swPath, { scope: './' })
       .then(() => console.log('✅ Service Worker registrado com sucesso!'))
       .catch((err) => {
-        console.warn('⚠️ Service Worker falhou, mas o app ainda funciona.', err);
-        setStatus('Notificações podem não funcionar. Tente recarregar.', false);
+        console.warn('⚠️ Service Worker falhou:', err);
       });
   });
 }
@@ -149,35 +148,32 @@ setInterval(loadSchedule, 30 * 60 * 1000);
 setInterval(loadUltimaMensagem, 5 * 60 * 1000);
 
 // ============================================================
-// ONESIGNAL — INICIALIZAÇÃO COM ESPERA DO SERVICE WORKER
+// ONESIGNAL — INICIALIZAÇÃO SOMENTE NO CLIQUE (sem erro)
 // ============================================================
-window.OneSignalDeferred = window.OneSignalDeferred || [];
-let oneSignalReady = false;
+let oneSignalInitialized = false;
 
-// Aguarda o Service Worker registrar antes de iniciar o OneSignal
-async function waitForServiceWorker() {
-  if (!('serviceWorker' in navigator)) return;
-  let attempts = 0;
-  while (attempts < 10) {
-    try {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg && reg.active) {
-        console.log('✅ Service Worker ativo, iniciando OneSignal...');
-        return;
-      }
-    } catch (_) {}
-    await new Promise(r => setTimeout(r, 300));
-    attempts++;
+// Função que inicializa o OneSignal de forma confiável
+async function initOneSignal() {
+  if (oneSignalInitialized) return true;
+  
+  // Verifica se o SDK já está carregado
+  if (typeof OneSignal === 'undefined' && typeof window.OneSignal === 'undefined') {
+    console.warn('OneSignal SDK não carregado. Aguarde...');
+    // Aguarda até 5 segundos para o SDK carregar
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      if (typeof window.OneSignal !== 'undefined') break;
+    }
   }
-  console.warn('⚠️ Service Worker não ficou ativo após 3 segundos, iniciando mesmo assim.');
-}
 
-OneSignalDeferred.push(async function (OneSignal) {
+  const OneSignal = window.OneSignal;
+  if (!OneSignal) {
+    setStatus('Erro: SDK do OneSignal não carregou. Recarregue a página.', false);
+    return false;
+  }
+
   try {
-    // Aguarda o Service Worker ficar ativo (máximo 3 segundos)
-    await waitForServiceWorker();
-
-    console.log('🔄 Inicializando OneSignal...');
+    console.log('🔄 Inicializando OneSignal (por clique)...');
     await OneSignal.init({
       appId: ONESIGNAL_APP_ID,
       notifyButton: { enable: false },
@@ -185,79 +181,36 @@ OneSignalDeferred.push(async function (OneSignal) {
       serviceWorkerParam: { scope: './' },
       serviceWorkerPath: 'sw.js',
     });
-    oneSignalReady = true;
+    oneSignalInitialized = true;
     console.log('✅ OneSignal iniciado com sucesso!');
-
-    const btn = document.getElementById('btnAtivar');
-    const hasPermission = OneSignal.Notifications.permission === 'granted';
-
-    if (hasPermission && btn) {
-      btn.textContent = 'Notificações ativas ✓';
-      btn.classList.add('ativo');
-      setStatus('Tudo certo — as mensagens vão chegar no seu celular', true);
-      loadUltimaMensagem();
-    } else if (btn) {
-      setStatus('Clique em "Ativar notificações" para começar', false);
-    }
+    return true;
   } catch (err) {
-    console.error('❌ Erro no OneSignal:', err);
-    oneSignalReady = true; // libera o botão mesmo com erro
+    console.error('❌ Erro ao iniciar OneSignal:', err);
     setStatus('Erro ao iniciar notificações. Recarregue a página.', false);
+    return false;
   }
-});
+}
 
-// ---------- Botão Ativar (com verificação extra do Service Worker) ----------
+// ---------- Botão Ativar (inicializa OneSignal no clique) ----------
 document.getElementById('btnAtivar').addEventListener('click', async function () {
   const btn = this;
-
-  // Tenta registrar o Service Worker novamente se ele não existir
-  if ('serviceWorker' in navigator) {
-    try {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) {
-        console.log('🔄 Service Worker não encontrado, registrando novamente...');
-        await navigator.serviceWorker.register('sw.js', { scope: './' });
-        console.log('✅ Service Worker registrado após clique');
-        // Recarrega a página para ativar o SW corretamente
-        window.location.reload();
-        return;
-      }
-    } catch (e) {
-      console.warn('⚠️ Não foi possível registrar o Service Worker:', e);
-    }
-  }
-
-  // Se o OneSignal não estiver pronto, tenta forçar a inicialização
-  if (!oneSignalReady) {
-    setStatus('Aguarde, inicializando...', false);
-    if (window.OneSignal) {
-      try {
-        await window.OneSignal.init({
-          appId: ONESIGNAL_APP_ID,
-          notifyButton: { enable: false },
-          allowLocalhostAsSecureOrigin: true,
-          serviceWorkerParam: { scope: './' },
-          serviceWorkerPath: 'sw.js',
-        });
-        oneSignalReady = true;
-        console.log('✅ OneSignal iniciado após clique');
-      } catch (e) {
-        console.error('❌ Falha ao forçar inicialização:', e);
-        setStatus('Erro ao iniciar. Recarregue a página.', false);
-        return;
-      }
-    } else {
-      setStatus('Ainda carregando… tenta de novo em 3 segundos', false);
-      return;
-    }
-  }
-
   btn.disabled = true;
+  setStatus('Inicializando...', false);
+
+  // Inicializa o OneSignal (se já não estiver)
+  const ok = await initOneSignal();
+  if (!ok) {
+    btn.disabled = false;
+    return;
+  }
+
+  const OneSignal = window.OneSignal;
   setStatus('');
+
   try {
     // Faz login com o ID da Karol
-    await window.OneSignal.login(USER_EXTERNAL_ID);
-    const allowed = await window.OneSignal.Notifications.requestPermission();
+    await OneSignal.login(USER_EXTERNAL_ID);
+    const allowed = await OneSignal.Notifications.requestPermission();
     if (allowed) {
       btn.textContent = 'Notificações ativas ✓';
       btn.classList.add('ativo');
@@ -279,3 +232,30 @@ document.getElementById('btnAtivar').addEventListener('click', async function ()
     btn.disabled = false;
   }
 });
+
+// ---------- Verifica se já tem permissão ao carregar ----------
+(async function checkExistingPermission() {
+  // Aguarda o OneSignal carregar passivamente (sem erro)
+  if (typeof window.OneSignal !== 'undefined') {
+    try {
+      const OneSignal = window.OneSignal;
+      await OneSignal.init({
+        appId: ONESIGNAL_APP_ID,
+        notifyButton: { enable: false },
+        allowLocalhostAsSecureOrigin: true,
+        serviceWorkerParam: { scope: './' },
+        serviceWorkerPath: 'sw.js',
+      });
+      oneSignalInitialized = true;
+      if (OneSignal.Notifications.permission === 'granted') {
+        const btn = document.getElementById('btnAtivar');
+        btn.textContent = 'Notificações ativas ✓';
+        btn.classList.add('ativo');
+        setStatus('Tudo certo — as mensagens vão chegar no seu celular', true);
+        loadUltimaMensagem();
+      }
+    } catch (_) {
+      // Silenciosamente ignora erro de inicialização (será tratado no clique)
+    }
+  }
+})();
