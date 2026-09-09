@@ -10,6 +10,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,77 +21,131 @@ app.use(helmet({
 }));
 app.use(cors({
   origin: process.env.ALLOWED_ORIGIN || '*',
-  methods: ['GET'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
 }));
 app.use(express.json());
 
 // ============================================================
-// 1. GERADOR DE MENSAGENS (limpo, com sentido garantido)
+// 1. GERADOR DE MENSAGENS (por período do dia)
 // ============================================================
 const MESSAGES_FILE = path.join(__dirname, 'messages.json');
 
-function gerarMensagensUnicas(quantidade = 300) {
-  const apelidos = [
-    'meu bem', 'meu amor', 'minha gostosa', 'minha fotógrafa',
-    'meu docinho', 'minha delícia', 'minha linda', 'minha gata',
-    'meu amorzinho', 'minha princesa', 'meu coração', 'minha vida'
-  ];
-  const frases = [
+const APELIDOS = [
+  'meu bem', 'meu amor', 'minha gostosa', 'minha fotógrafa',
+  'meu docinho', 'minha delícia', 'minha linda', 'minha gata',
+  'meu amorzinho', 'minha princesa', 'meu coração', 'minha vida'
+];
+
+const FRASES_POR_PERIODO = {
+  manha: [
     (ap) => `Bom dia, ${ap}. Acordei pensando em você e no quanto tenho orgulho de tudo que você faz.`,
+    (ap) => `Bom dia, ${ap}. Que seu dia comece leve e com o coração quentinho.`,
+    (ap) => `Acordei com saudade, ${ap}. Queria te abraçar agora. Bom dia, beijinhos.`,
+    (ap) => `Bom dia, linda. Tô pensando na gente e no quanto você me faz bem. Te amo, ${ap}.`,
     (ap) => `Oi, ${ap}. Só passando pra te lembrar que você é a minha fotógrafa favorita e o amor da minha vida.`,
     (ap) => `${ap.charAt(0).toUpperCase() + ap.slice(1)}, seu sorriso ainda é a coisa mais linda que eu conheço. Te amo demais.`,
-    (ap) => `Boa tarde, ${ap}. Tô aqui do seu lado, mesmo de longe. Vai com calma e com tudo — eu acredito em você.`,
-    (ap) => `Ei, ${ap}. Cada foto sua me faz lembrar o quanto você tem talento. Sou seu fã número 1.`,
-    (ap) => `Boa noite, ${ap}. Obrigado por existir na minha vida. Te escolho todos os dias.`,
-    (ap) => `${ap.charAt(0).toUpperCase() + ap.slice(1)}, você é forte, guerreira e incrível. Não esquece disso.`,
+    (ap) => `E aí, ${ap}. Só um lembrete: você é foda. E eu te amo muito.`,
     (ap) => `Passando só pra dizer: te amo infinito, ${ap}. Seu jeito me encanta.`,
+  ],
+  tarde: [
+    (ap) => `Boa tarde, ${ap}. Tô aqui do seu lado, mesmo de longe. Vai com calma e com tudo — eu acredito em você.`,
+    (ap) => `Boa tarde, ${ap}. Ver você crescer me dá um orgulho gigante. Continua sendo você.`,
+    (ap) => `Ei, ${ap}. Cada foto sua me faz lembrar o quanto você tem talento. Sou seu fã número 1.`,
+    (ap) => `${ap.charAt(0).toUpperCase() + ap.slice(1)}, você é forte, guerreira e incrível. Não esquece disso.`,
     (ap) => `Oi, ${ap}. Suas fotos capturam alma de verdade. Orgulho não cabe no peito.`,
     (ap) => `${ap.charAt(0).toUpperCase() + ap.slice(1)}, você não está sozinha. Estou aqui, sempre. Com carinho.`,
-    (ap) => `Acordei com saudade, ${ap}. Queria te abraçar agora. Beijinhos.`,
-    (ap) => `E aí, ${ap}. Só um lembrete: você é foda. E eu te amo muito.`,
-    (ap) => `Boa tarde, ${ap}. Ver você crescer me dá um orgulho gigante. Continua sendo você.`,
-    (ap) => `${ap.charAt(0).toUpperCase() + ap.slice(1)}, meu amor por você só cresce. Sempre seu.`,
-    (ap) => `Oi, linda. Tô pensando na gente e no quanto você me faz bem. Te amo, ${ap}.`,
     (ap) => `Não resisti e vim te dizer: você é tudo que eu quero, ${ap}. ❤️`,
-    (ap) => `Boa noite, ${ap}. Descansa que eu tô aqui. Um abraço gigante.`,
-    (ap) => `${ap.charAt(0).toUpperCase() + ap.slice(1)}, cada clique seu é uma obra de arte. Amo ver o mundo pelos seus olhos.`,
-    (ap) => `Ei, ${ap}. Confio em você plenamente. Juntos somos mais fortes.`,
     (ap) => `Só queria te falar que você é uma pessoa maravilhosa, ${ap}. Te amo demais.`,
-  ];
-  const extras = [
-    '', ' kkk', ' 💕', ' ❤️', ' hehe', ' 🩷', ' bjs', ''
-  ];
-  const random = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  const set = new Set();
-  let tries = 0;
-  while (set.size < quantidade && tries < 30000) {
-    tries++;
-    const ap = random(apelidos);
-    const base = random(frases)(ap);
-    const msg = (base + random(extras)).replace(/\s+/g, ' ').trim();
-    if (msg.length >= 28 && msg.length <= 180) set.add(msg);
-  }
-  return Array.from(set);
+  ],
+  noite: [
+    (ap) => `Boa noite, ${ap}. Obrigado por existir na minha vida. Te escolho todos os dias.`,
+    (ap) => `Boa noite, ${ap}. Descansa que eu tô aqui. Um abraço gigante.`,
+    (ap) => `${ap.charAt(0).toUpperCase() + ap.slice(1)}, meu amor por você só cresce. Sempre seu.`,
+    (ap) => `Ei, ${ap}. Confio em você plenamente. Juntos somos mais fortes.`,
+    (ap) => `${ap.charAt(0).toUpperCase() + ap.slice(1)}, cada clique seu é uma obra de arte. Amo ver o mundo pelos seus olhos.`,
+    (ap) => `Passando só pra dizer: te amo infinito, ${ap}. Seu jeito me encanta.`,
+    (ap) => `Oi, ${ap}. Só passando pra te lembrar que você é a minha fotógrafa favorita e o amor da minha vida.`,
+    (ap) => `Não resisti e vim te dizer: você é tudo que eu quero, ${ap}. ❤️`,
+  ],
+};
+
+const EXTRAS = ['', ' kkk', ' 💕', ' ❤️', ' hehe', ' 🩷', ' bjs', ''];
+
+function random(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
 }
 
-let messages = [];
+function gerarMensagensPorPeriodo(quantidadePorPeriodo = 100) {
+  const result = { manha: [], tarde: [], noite: [] };
+  for (const periodo of Object.keys(FRASES_POR_PERIODO)) {
+    const set = new Set();
+    let tries = 0;
+    while (set.size < quantidadePorPeriodo && tries < 20000) {
+      tries++;
+      const ap = random(APELIDOS);
+      const base = random(FRASES_POR_PERIODO[periodo])(ap);
+      const msg = (base + random(EXTRAS)).replace(/\s+/g, ' ').trim();
+      if (msg.length >= 28 && msg.length <= 180) set.add(msg);
+    }
+    result[periodo] = Array.from(set);
+  }
+  return result;
+}
+
+/** @type {{ manha: string[], tarde: string[], noite: string[] }} */
+let messagesByPeriod = { manha: [], tarde: [], noite: [] };
+
 try {
   if (!fs.existsSync(MESSAGES_FILE)) {
-    console.log('🔨 Gerando 300 mensagens...');
-    messages = gerarMensagensUnicas(300);
-    fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messages, null, 2));
-    console.log(`✅ ${messages.length} mensagens salvas`);
+    console.log('🔨 Gerando mensagens por período...');
+    messagesByPeriod = gerarMensagensPorPeriodo(100);
+    fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messagesByPeriod, null, 2));
+    console.log(`✅ manhã=${messagesByPeriod.manha.length} tarde=${messagesByPeriod.tarde.length} noite=${messagesByPeriod.noite.length}`);
   } else {
-    messages = JSON.parse(fs.readFileSync(MESSAGES_FILE, 'utf8'));
-    console.log(`📚 ${messages.length} mensagens carregadas.`);
+    const raw = JSON.parse(fs.readFileSync(MESSAGES_FILE, 'utf8'));
+    // Compatibilidade: se for array antigo (lista única), regenera
+    if (Array.isArray(raw)) {
+      console.log('🔄 messages.json antigo (lista única) → regenerando por período...');
+      messagesByPeriod = gerarMensagensPorPeriodo(100);
+      fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messagesByPeriod, null, 2));
+    } else if (raw && raw.manha && raw.tarde && raw.noite) {
+      messagesByPeriod = raw;
+      console.log(`📚 mensagens carregadas: manhã=${raw.manha.length} tarde=${raw.tarde.length} noite=${raw.noite.length}`);
+    } else {
+      messagesByPeriod = gerarMensagensPorPeriodo(100);
+      fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messagesByPeriod, null, 2));
+    }
   }
 } catch (e) {
   console.error('⚠️ Erro ao ler/gerar messages.json, regenerando em memória:', e.message);
-  messages = gerarMensagensUnicas(300);
+  messagesByPeriod = gerarMensagensPorPeriodo(100);
 }
 
-if (!messages || messages.length === 0) {
-  messages = ['Só passando pra te lembrar que eu te amo muito. ❤️'];
+function fallbackMsgs(periodo) {
+  const defaults = {
+    manha: 'Bom dia, meu amor. Acordei pensando em você. ❤️',
+    tarde: 'Boa tarde, meu bem. Tô aqui, sempre. 💕',
+    noite: 'Boa noite, meu amor. Descansa que eu tô aqui. 🩷',
+  };
+  return [defaults[periodo] || defaults.noite];
+}
+
+/** Retorna o período do dia com base na hora local (TZ já configurado). */
+function getPeriodoDoDia(date = new Date()) {
+  const h = date.getHours();
+  // 05:00–11:59 → manhã | 12:00–17:59 → tarde | 18:00–04:59 → noite
+  if (h >= 5 && h < 12) return 'manha';
+  if (h >= 12 && h < 18) return 'tarde';
+  return 'noite';
+}
+
+function escolherMensagemDoPeriodo() {
+  const periodo = getPeriodoDoDia();
+  const pool = messagesByPeriod[periodo];
+  if (pool && pool.length > 0) {
+    return random(pool);
+  }
+  return random(fallbackMsgs(periodo));
 }
 
 // Última mensagem enviada (para a tela do app mostrar)
@@ -180,7 +235,8 @@ async function sendLoveMessage() {
     console.error('❌ ONESIGNAL_API_KEY não definida. Mensagem não enviada.');
     return;
   }
-  const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+  const periodo = getPeriodoDoDia();
+  const randomMsg = escolherMensagemDoPeriodo();
   lastSentMessage = randomMsg;
   lastSentAt = new Date().toISOString();
 
@@ -191,7 +247,7 @@ async function sendLoveMessage() {
       channel_for_external_user_ids: 'push',
       headings: { en: '💖 Meu amor, olha isso...' },
       contents: { en: randomMsg },
-      data: { screen: 'Mensagem', message: randomMsg },
+      data: { screen: 'Mensagem', message: randomMsg, periodo },
     }, {
       headers: {
         'Content-Type': 'application/json',
@@ -199,7 +255,7 @@ async function sendLoveMessage() {
       },
       timeout: 12000,
     });
-    console.log(`✅ Mensagem enviada: "${randomMsg.slice(0, 50)}..."`);
+    console.log(`✅ [${periodo}] Mensagem enviada: "${randomMsg.slice(0, 50)}..."`);
   } catch (error) {
     console.error('❌ Erro ao enviar:', error.response?.data || error.message);
   }
@@ -224,17 +280,46 @@ cron.schedule('* * * * *', () => {
   if (allTimes.includes(currentTime) && !sentToday.has(currentTime)) {
     sendLoveMessage();
     sentToday.add(currentTime);
-    console.log(`⏰ Disparado às ${currentTime}`);
+    console.log(`⏰ Disparado às ${currentTime} (período: ${getPeriodoDoDia()})`);
   }
 }, { timezone: process.env.TZ });
 
 // ============================================================
-// 6. ROTAS
+// 6. LISTINHA (checklist compartilhada)
+// ============================================================
+const LIST_FILE = path.join(__dirname, 'listinha.json');
+
+function loadListinha() {
+  try {
+    if (fs.existsSync(LIST_FILE)) {
+      const data = JSON.parse(fs.readFileSync(LIST_FILE, 'utf8'));
+      if (Array.isArray(data)) return data;
+    }
+  } catch (e) {
+    console.error('⚠️ Erro ao ler listinha:', e.message);
+  }
+  return [];
+}
+
+function saveListinha(items) {
+  try {
+    fs.writeFileSync(LIST_FILE, JSON.stringify(items, null, 2));
+  } catch (e) {
+    console.error('⚠️ Erro ao salvar listinha:', e.message);
+  }
+}
+
+let listinha = loadListinha();
+console.log(`📝 Listinha: ${listinha.length} item(ns)`);
+
+// ============================================================
+// 7. ROTAS
 // ============================================================
 app.get('/ping', (req, res) => res.json({
   ok: true,
   message: '❤️ Servidor do amor está on!',
   tz: process.env.TZ,
+  periodo: getPeriodoDoDia(),
   nextTimes: allTimes,
 }));
 
@@ -244,23 +329,34 @@ app.get('/schedule', (req, res) => {
     random: randomTimesStr,
     all: allTimes,
     timezone: process.env.TZ,
+    periodo: getPeriodoDoDia(),
     lastSentAt,
   });
 });
 
 // Última mensagem enviada (para a tela do app mostrar)
 app.get('/ultima-mensagem', (req, res) => {
+  const periodo = getPeriodoDoDia();
+  const pool = messagesByPeriod[periodo] || fallbackMsgs(periodo);
   res.json({
-    message: lastSentMessage || messages[Math.floor(Math.random() * messages.length)],
+    message: lastSentMessage || random(pool),
     sentAt: lastSentAt,
     isLive: Boolean(lastSentMessage),
+    periodo,
   });
 });
 
 app.get('/mensagens', (req, res) => {
+  const periodo = getPeriodoDoDia();
+  const pool = messagesByPeriod[periodo] || [];
   res.json({
-    total: messages.length,
-    exemplo: messages[Math.floor(Math.random() * messages.length)],
+    total: {
+      manha: (messagesByPeriod.manha || []).length,
+      tarde: (messagesByPeriod.tarde || []).length,
+      noite: (messagesByPeriod.noite || []).length,
+    },
+    periodoAtual: periodo,
+    exemplo: pool.length ? random(pool) : null,
   });
 });
 
@@ -273,8 +369,59 @@ app.get('/test-send', async (req, res) => {
   res.json({
     ok: true,
     message: lastSentMessage,
+    periodo: getPeriodoDoDia(),
     hint: 'Verifique a notificação no celular da Karol (ela precisa ter ativado as notificações no app).',
   });
+});
+
+// ---------- Listinha API ----------
+app.get('/listinha', (req, res) => {
+  res.json({ items: listinha });
+});
+
+app.post('/listinha', (req, res) => {
+  const text = (req.body?.text || '').trim();
+  const author = (req.body?.author || '').trim().slice(0, 40) || 'nós';
+  if (!text || text.length > 200) {
+    return res.status(400).json({ error: 'Texto inválido (1–200 caracteres)' });
+  }
+  const item = {
+    id: crypto.randomUUID(),
+    text,
+    author,
+    done: false,
+    createdAt: new Date().toISOString(),
+  };
+  listinha.unshift(item);
+  saveListinha(listinha);
+  res.status(201).json({ item, items: listinha });
+});
+
+app.patch('/listinha/:id', (req, res) => {
+  const { id } = req.params;
+  const idx = listinha.findIndex((i) => i.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Item não encontrado' });
+
+  if (typeof req.body?.done === 'boolean') {
+    listinha[idx].done = req.body.done;
+  }
+  if (typeof req.body?.text === 'string') {
+    const t = req.body.text.trim();
+    if (t && t.length <= 200) listinha[idx].text = t;
+  }
+  saveListinha(listinha);
+  res.json({ item: listinha[idx], items: listinha });
+});
+
+app.delete('/listinha/:id', (req, res) => {
+  const { id } = req.params;
+  const before = listinha.length;
+  listinha = listinha.filter((i) => i.id !== id);
+  if (listinha.length === before) {
+    return res.status(404).json({ error: 'Item não encontrado' });
+  }
+  saveListinha(listinha);
+  res.json({ ok: true, items: listinha });
 });
 
 app.use((req, res) => res.status(404).json({ error: 'Rota não encontrada' }));
@@ -284,7 +431,7 @@ app.use((err, req, res, next) => {
 });
 
 // ============================================================
-// 7. SELF-PING (Render free)
+// 8. SELF-PING (Render free)
 // ============================================================
 const PUBLIC_URL = process.env.RENDER_EXTERNAL_URL;
 if (process.env.NODE_ENV !== 'development' && PUBLIC_URL) {
@@ -299,10 +446,11 @@ if (process.env.NODE_ENV !== 'development' && PUBLIC_URL) {
 }
 
 // ============================================================
-// 8. START
+// 9. START
 // ============================================================
 app.listen(PORT, () => {
   console.log(`🔥 Servidor rodando na porta ${PORT}`);
+  console.log(`🕐 Período atual: ${getPeriodoDoDia()} (hora local: ${new Date().toLocaleTimeString('pt-BR')})`);
 });
 
 process.on('unhandledRejection', (reason) => {
