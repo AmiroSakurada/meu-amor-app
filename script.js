@@ -28,6 +28,7 @@ function setMessage(text) {
 function createHearts() {
   const container = document.getElementById('hearts-bg');
   if (!container) return;
+
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
   const emojis = ['❤️', '💕', '✨', '🩷'];
@@ -51,22 +52,18 @@ createHearts();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     const swPath = new URL('sw.js', window.location.href).pathname;
-    navigator.serviceWorker.register(swPath, { scope: './' })
-      .then(() => console.log('✅ Service Worker registrado com sucesso!'))
-      .catch((err) => {
-        console.warn('⚠️ Service Worker falhou:', err);
-      });
+    navigator.serviceWorker.register(swPath, { scope: './' }).catch(() => {});
   });
 }
 
 // ---------- horários + mensagem ----------
 let scheduleTimes = [];
 
-async function fetchJson(url, ms = 9000) {
+async function fetchJson(url, ms = 9000, options = {}) {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), ms);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal, ...options });
     clearTimeout(t);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return await res.json();
@@ -80,7 +77,6 @@ async function loadSchedule() {
   try {
     const data = await fetchJson(BACKEND_URL + '/schedule');
     scheduleTimes = data.all || [];
-    console.log('📅 Horários carregados:', scheduleTimes);
   } catch (e) {
     console.warn('horários fallback', e.message);
     scheduleTimes = ['08:00', '10:30', '13:00', '18:00', '21:00'];
@@ -147,33 +143,12 @@ setInterval(updateCountdown, 1000);
 setInterval(loadSchedule, 30 * 60 * 1000);
 setInterval(loadUltimaMensagem, 5 * 60 * 1000);
 
-// ============================================================
-// ONESIGNAL — INICIALIZAÇÃO SOMENTE NO CLIQUE (sem erro)
-// ============================================================
-let oneSignalInitialized = false;
+// ---------- OneSignal (iPhone + Android) ----------
+window.OneSignalDeferred = window.OneSignalDeferred || [];
+let oneSignalReady = false;
 
-// Função que inicializa o OneSignal de forma confiável
-async function initOneSignal() {
-  if (oneSignalInitialized) return true;
-  
-  // Verifica se o SDK já está carregado
-  if (typeof OneSignal === 'undefined' && typeof window.OneSignal === 'undefined') {
-    console.warn('OneSignal SDK não carregado. Aguarde...');
-    // Aguarda até 5 segundos para o SDK carregar
-    for (let i = 0; i < 10; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      if (typeof window.OneSignal !== 'undefined') break;
-    }
-  }
-
-  const OneSignal = window.OneSignal;
-  if (!OneSignal) {
-    setStatus('Erro: SDK do OneSignal não carregou. Recarregue a página.', false);
-    return false;
-  }
-
+OneSignalDeferred.push(async function (OneSignal) {
   try {
-    console.log('🔄 Inicializando OneSignal (por clique)...');
     await OneSignal.init({
       appId: ONESIGNAL_APP_ID,
       notifyButton: { enable: false },
@@ -181,34 +156,31 @@ async function initOneSignal() {
       serviceWorkerParam: { scope: './' },
       serviceWorkerPath: 'sw.js',
     });
-    oneSignalInitialized = true;
-    console.log('✅ OneSignal iniciado com sucesso!');
-    return true;
-  } catch (err) {
-    console.error('❌ Erro ao iniciar OneSignal:', err);
-    setStatus('Erro ao iniciar notificações. Recarregue a página.', false);
-    return false;
-  }
-}
+    oneSignalReady = true;
 
-// ---------- Botão Ativar (inicializa OneSignal no clique) ----------
+    const btn = document.getElementById('btnAtivar');
+    if (OneSignal.Notifications.permission && btn) {
+      btn.textContent = 'Notificações ativas ✓';
+      btn.classList.add('ativo');
+      setStatus('Tudo certo — as mensagens vão chegar no seu celular', true);
+      loadUltimaMensagem();
+    }
+  } catch (err) {
+    console.error(err);
+    setStatus('Não deu pra iniciar as notificações. Recarrega a página?');
+  }
+});
+
 document.getElementById('btnAtivar').addEventListener('click', async function () {
   const btn = this;
-  btn.disabled = true;
-  setStatus('Inicializando...', false);
-
-  // Inicializa o OneSignal (se já não estiver)
-  const ok = await initOneSignal();
-  if (!ok) {
-    btn.disabled = false;
+  if (!oneSignalReady || typeof OneSignal === 'undefined') {
+    setStatus('Ainda carregando… tenta de novo em 2 segundos');
     return;
   }
-
-  const OneSignal = window.OneSignal;
+  btn.disabled = true;
   setStatus('');
-
   try {
-    // Faz login com o ID da Karol
+    // mesmo ID do backend → push chega no aparelho dela
     await OneSignal.login(USER_EXTERNAL_ID);
     const allowed = await OneSignal.Notifications.requestPermission();
     if (allowed) {
@@ -218,6 +190,7 @@ document.getElementById('btnAtivar').addEventListener('click', async function ()
       setMessage('Agora você vai receber todo meu amor no celular');
       setTimeout(loadUltimaMensagem, 700);
     } else {
+      // iOS Safari precisa de Add to Home Screen + permissão
       const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       setStatus(
         isiOS
@@ -226,36 +199,141 @@ document.getElementById('btnAtivar').addEventListener('click', async function ()
       );
     }
   } catch (e) {
-    console.error('❌ Erro ao ativar notificações:', e);
-    setStatus('Algo deu errado. Tenta de novo ou libera notificações nas configs.', false);
+    console.error(e);
+    setStatus('Algo deu errado. Tenta de novo ou libera notificações nas configs.');
   } finally {
     btn.disabled = false;
   }
 });
 
-// ---------- Verifica se já tem permissão ao carregar ----------
-(async function checkExistingPermission() {
-  // Aguarda o OneSignal carregar passivamente (sem erro)
-  if (typeof window.OneSignal !== 'undefined') {
-    try {
-      const OneSignal = window.OneSignal;
-      await OneSignal.init({
-        appId: ONESIGNAL_APP_ID,
-        notifyButton: { enable: false },
-        allowLocalhostAsSecureOrigin: true,
-        serviceWorkerParam: { scope: './' },
-        serviceWorkerPath: 'sw.js',
-      });
-      oneSignalInitialized = true;
-      if (OneSignal.Notifications.permission === 'granted') {
-        const btn = document.getElementById('btnAtivar');
-        btn.textContent = 'Notificações ativas ✓';
-        btn.classList.add('ativo');
-        setStatus('Tudo certo — as mensagens vão chegar no seu celular', true);
-        loadUltimaMensagem();
-      }
-    } catch (_) {
-      // Silenciosamente ignora erro de inicialização (será tratado no clique)
+// ============================================================
+// LISTINHA
+// ============================================================
+const listinhaItemsEl = document.getElementById('listinhaItems');
+const listinhaEmptyEl = document.getElementById('listinhaEmpty');
+const listinhaForm = document.getElementById('listinhaForm');
+const listinhaInput = document.getElementById('listinhaInput');
+const listinhaAuthor = document.getElementById('listinhaAuthor');
+
+function renderListinha(items) {
+  if (!listinhaItemsEl) return;
+  listinhaItemsEl.innerHTML = '';
+
+  if (!items || items.length === 0) {
+    if (listinhaEmptyEl) listinhaEmptyEl.hidden = false;
+    return;
+  }
+  if (listinhaEmptyEl) listinhaEmptyEl.hidden = true;
+
+  // pendentes primeiro, depois concluídos
+  const sorted = [...items].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+
+  for (const item of sorted) {
+    const li = document.createElement('li');
+    li.className = 'listinha-item' + (item.done ? ' is-done' : '');
+    li.dataset.id = item.id;
+
+    const check = document.createElement('button');
+    check.type = 'button';
+    check.className = 'listinha-check';
+    check.setAttribute('aria-label', item.done ? 'Desmarcar' : 'Marcar como feito');
+    check.innerHTML = item.done ? '✓' : '';
+    check.addEventListener('click', () => toggleItem(item.id, !item.done));
+
+    const body = document.createElement('div');
+    body.className = 'listinha-body';
+
+    const text = document.createElement('span');
+    text.className = 'listinha-text';
+    text.textContent = item.text;
+
+    const meta = document.createElement('span');
+    meta.className = 'listinha-meta';
+    meta.textContent = item.author || 'nós';
+
+    body.appendChild(text);
+    body.appendChild(meta);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'listinha-del';
+    del.setAttribute('aria-label', 'Apagar');
+    del.textContent = '×';
+    del.addEventListener('click', () => deleteItem(item.id));
+
+    li.appendChild(check);
+    li.appendChild(body);
+    li.appendChild(del);
+    listinhaItemsEl.appendChild(li);
+  }
+}
+
+async function loadListinha() {
+  try {
+    const data = await fetchJson(BACKEND_URL + '/listinha');
+    renderListinha(data.items || []);
+  } catch (e) {
+    console.warn('listinha falhou', e.message);
+    if (listinhaEmptyEl) {
+      listinhaEmptyEl.hidden = false;
+      listinhaEmptyEl.textContent = 'Não deu pra carregar a listinha agora 💔';
     }
   }
-})();
+}
+
+async function addItem(text, author) {
+  try {
+    const data = await fetchJson(BACKEND_URL + '/listinha', 9000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, author }),
+    });
+    renderListinha(data.items || []);
+  } catch (e) {
+    console.error(e);
+    alert('Não deu pra adicionar. Tenta de novo?');
+  }
+}
+
+async function toggleItem(id, done) {
+  try {
+    const data = await fetchJson(BACKEND_URL + '/listinha/' + id, 9000, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ done }),
+    });
+    renderListinha(data.items || []);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function deleteItem(id) {
+  if (!confirm('Apagar este item?')) return;
+  try {
+    const data = await fetchJson(BACKEND_URL + '/listinha/' + id, 9000, {
+      method: 'DELETE',
+    });
+    renderListinha(data.items || []);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+if (listinhaForm) {
+  listinhaForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = (listinhaInput.value || '').trim();
+    if (!text) return;
+    const author = listinhaAuthor.value || 'nós';
+    listinhaInput.value = '';
+    addItem(text, author);
+  });
+}
+
+// carrega e atualiza a cada 30s (pra ambos verem mudanças)
+loadListinha();
+setInterval(loadListinha, 30 * 1000);
