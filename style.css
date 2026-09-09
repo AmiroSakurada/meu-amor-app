@@ -285,3 +285,196 @@ body {
   .title { font-size: 1.3rem; }
   .photos { gap: 6px; }
 }
+
+/* ========== LISTINHA ========== */
+.listinha {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+}
+
+.listinha-title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin-bottom: 2px;
+  color: var(--text);
+}
+
+.listinha-hint {
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin-bottom: 12px;
+}
+
+.listinha-form {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.listinha-input {
+  flex: 1 1 140px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.listinha-input::placeholder {
+  color: rgba(255, 235, 240, 0.4);
+}
+
+.listinha-input:focus {
+  border-color: var(--pink-soft);
+  box-shadow: 0 0 0 2px rgba(255, 61, 110, 0.2);
+}
+
+.listinha-author {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 8px;
+  font-size: 0.82rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.listinha-add {
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ff2e63, #ff6b8a);
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+  box-shadow: 0 6px 16px rgba(255, 46, 99, 0.28);
+  transition: transform 0.15s ease;
+}
+
+.listinha-add:active {
+  transform: scale(0.94);
+}
+
+.listinha-items {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
+}
+
+.listinha-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 10px 10px 12px;
+  transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.listinha-item.is-done {
+  opacity: 0.55;
+}
+
+.listinha-item.is-done .listinha-text {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.listinha-check {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 160, 180, 0.45);
+  background: transparent;
+  color: #9be29b;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.listinha-item.is-done .listinha-check {
+  background: rgba(155, 226, 155, 0.18);
+  border-color: rgba(155, 226, 155, 0.55);
+}
+
+.listinha-check:active {
+  transform: scale(0.92);
+}
+
+.listinha-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.listinha-text {
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: rgba(255, 248, 250, 0.95);
+  word-break: break-word;
+}
+
+.listinha-meta {
+  font-size: 0.68rem;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
+.listinha-del {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 160, 180, 0.55);
+  font-size: 1.2rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 8px;
+  line-height: 1;
+  transition: color 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.listinha-del:hover,
+.listinha-del:active {
+  color: #ff6b8a;
+  background: rgba(255, 46, 99, 0.12);
+}
+
+.listinha-empty {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 12px 8px;
+  margin: 0;
+}
+
+.listinha-empty[hidden] {
+  display: none;
+}
