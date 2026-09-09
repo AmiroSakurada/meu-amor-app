@@ -41,6 +41,32 @@
     <p class="hint">Assim as mensagens chegam no seu celular, mesmo com o app fechado</p>
     <p class="status" id="status" role="status"></p>
 
+    <!-- LISTINHA -->
+    <section class="listinha" aria-label="Nossa listinha">
+      <h2 class="listinha-title">📝 Nossa listinha</h2>
+      <p class="listinha-hint">Marquem o que já fizeram juntos</p>
+
+      <form class="listinha-form" id="listinhaForm" autocomplete="off">
+        <input
+          type="text"
+          id="listinhaInput"
+          class="listinha-input"
+          placeholder="Ex: jantar romântico, ver pôr do sol…"
+          maxlength="200"
+          required
+        />
+        <select id="listinhaAuthor" class="listinha-author" aria-label="Quem está escrevendo">
+          <option value="Amiro">Amiro</option>
+          <option value="Karol">Karol</option>
+          <option value="nós">nós</option>
+        </select>
+        <button type="submit" class="listinha-add" aria-label="Adicionar">+</button>
+      </form>
+
+      <ul class="listinha-items" id="listinhaItems"></ul>
+      <p class="listinha-empty" id="listinhaEmpty">Ainda vazio… adicionem o primeiro item 💕</p>
+    </section>
+
     <section class="photos" aria-label="Nossas fotos">
       <figure>
         <img src="assets/photo-elaeeu.jpg" alt="Nós dois" loading="lazy">
